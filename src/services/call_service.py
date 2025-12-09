@@ -1,0 +1,193 @@
+"""
+Call Service - Business logic for call management
+"""
+
+from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import Optional
+import logging
+import asyncio
+
+from ..database.models import Call, CallRecord, SIPAccount
+from ..client.sip_client import SIPClient
+from ..protocol.sip_utils import generate_call_id, build_sip_uri
+
+logger = logging.getLogger(__name__)
+
+
+class CallService:
+    """Service for managing SIP calls."""
+    
+    def __init__(self, db: Session):
+        self.db = db
+        self.active_clients: dict = {}  # sip_account_id -> SIPClient
+    
+    async def initiate_call(
+        self,
+        user_id: int,
+        sip_account_id: int,
+        to_uri: str
+    ) -> Call:
+        """Initiate a new call."""
+        # Get SIP account
+        sip_account = self.db.query(SIPAccount).filter(
+            SIPAccount.id == sip_account_id
+        ).first()
+        if not sip_account:
+            raise ValueError("SIP account not found")
+        
+        # Get or create SIP client for this account
+        client = self._get_or_create_client(sip_account)
+        
+        # Generate call ID
+        call_id = generate_call_id()
+        
+        # Build from URI
+        from_uri = build_sip_uri(user=sip_account.username, host=sip_account.domain)
+        
+        # Create call record
+        call = Call(
+            user_id=user_id,
+            sip_account_id=sip_account_id,
+            call_id=call_id,
+            from_uri=from_uri,
+            to_uri=to_uri,
+            direction="outbound",
+            state="INITIATING"
+        )
+        self.db.add(call)
+        
+        # Create call record
+        record = CallRecord(
+            call_id=call.id,
+            event_type="INVITE",
+            event_data=f'{{"to_uri": "{to_uri}"}}'
+        )
+        self.db.add(record)
+        self.db.commit()
+        self.db.refresh(call)
+        
+        # Initiate call via SIP client
+        try:
+            client.make_call(to_uri)
+            logger.info(f"Call initiated: {call_id}")
+        except Exception as e:
+            logger.error(f"Error initiating call: {e}")
+            call.state = "FAILED"
+            self.db.commit()
+            raise
+        
+        return call
+    
+    async def hangup_call(self, call_id: str):
+        """Hang up a call."""
+        call = self.db.query(Call).filter(Call.call_id == call_id).first()
+        if not call:
+            raise ValueError("Call not found")
+        
+        # Get SIP client
+        client = self._get_or_create_client(call.sip_account)
+        
+        # Hangup
+        try:
+            client.hangup(call_id)
+            call.state = "TERMINATED"
+            call.ended_at = datetime.utcnow()
+            if call.connected_at:
+                call.duration = (call.ended_at - call.connected_at).total_seconds()
+            
+            # Create call record
+            record = CallRecord(
+                call_id=call.id,
+                event_type="BYE",
+                event_data='{"action": "hangup"}'
+            )
+            self.db.add(record)
+            self.db.commit()
+            
+            logger.info(f"Call {call_id} terminated")
+        except Exception as e:
+            logger.error(f"Error hanging up call: {e}")
+            raise
+    
+    async def update_call_state(
+        self,
+        call_id: str,
+        state: str,
+        **kwargs
+    ):
+        """Update call state."""
+        call = self.db.query(Call).filter(Call.call_id == call_id).first()
+        if not call:
+            return
+        
+        call.state = state
+        
+        if state == "CONNECTED" and not call.connected_at:
+            call.connected_at = datetime.utcnow()
+        elif state == "TERMINATED" and not call.ended_at:
+            call.ended_at = datetime.utcnow()
+            if call.connected_at:
+                call.duration = (call.ended_at - call.connected_at).total_seconds()
+        
+        # Update other fields from kwargs
+        for key, value in kwargs.items():
+            if hasattr(call, key):
+                setattr(call, key, value)
+        
+        # Create call record
+        record = CallRecord(
+            call_id=call.id,
+            event_type=state,
+            event_data=str(kwargs)
+        )
+        self.db.add(record)
+        self.db.commit()
+    
+    def _get_or_create_client(self, sip_account: SIPAccount) -> SIPClient:
+        """Get or create SIP client for account."""
+        if sip_account.id in self.active_clients:
+            return self.active_clients[sip_account.id]
+        
+        # Create client configuration
+        import tempfile
+        import yaml
+        from pathlib import Path
+        
+        config = {
+            'client': {
+                'server_host': sip_account.server_host,
+                'server_port': sip_account.server_port,
+                'username': sip_account.username,
+                'password': sip_account.password,
+                'domain': sip_account.domain,
+                'local_ip': '0.0.0.0',
+                'local_port': 0
+            }
+        }
+        
+        # Create temporary config file
+        config_file = Path(tempfile.gettempdir()) / f"sip_client_{sip_account.id}.yaml"
+        with open(config_file, 'w') as f:
+            yaml.dump(config, f)
+        
+        # Create and start client
+        client = SIPClient(config_path=str(config_file))
+        client.start()
+        
+        # Register client
+        client.register()
+        
+        # Set up callbacks - run async update in background
+        def on_connected(cid):
+            asyncio.create_task(self.update_call_state(cid, "CONNECTED"))
+        
+        def on_ended(cid):
+            asyncio.create_task(self.update_call_state(cid, "TERMINATED"))
+        
+        client.set_on_call_connected(on_connected)
+        client.set_on_call_ended(on_ended)
+        
+        self.active_clients[sip_account.id] = client
+        return client
+

@@ -1,0 +1,9 @@
+client:
+  server_host: "localhost"
+  server_port: 5060
+  username: "user1"
+  password: ""
+  domain: "localhost"
+  local_ip: "0.0.0.0"
+  local_port: 0
+
