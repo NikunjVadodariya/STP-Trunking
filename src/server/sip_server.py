@@ -11,7 +11,7 @@ from typing import Dict, Optional, Callable
 from pathlib import Path
 
 from ..protocol.sip_parser import SIPParser
-from ..protocol.sip_message import SIPRequest, SIPResponse, SIPMethod, SIPStatusCode
+from ..protocol.sip_message import SIPMessage, SIPRequest, SIPResponse, SIPMethod, SIPStatusCode
 from ..protocol.sip_utils import generate_tag, generate_branch, parse_sip_uri
 from .call_handler import CallHandler, CallState
 
@@ -358,7 +358,17 @@ class SIPServer:
         """Generate SDP answer."""
         # Simple SDP generation
         import socket
-        local_ip = socket.gethostbyname(socket.gethostname())
+        try:
+            local_ip = socket.gethostbyname(socket.gethostname())
+        except (socket.gaierror, OSError):
+            # Fallback: connect to external address to determine local IP
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+            except Exception:
+                local_ip = "127.0.0.1"  # Final fallback
         local_rtp_port = 10000  # Default RTP port
         
         sdp = f"""v=0

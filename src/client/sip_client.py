@@ -11,7 +11,7 @@ from typing import Optional, Callable
 from pathlib import Path
 
 from ..protocol.sip_parser import SIPParser
-from ..protocol.sip_message import SIPRequest, SIPResponse, SIPMethod, SIPStatusCode
+from ..protocol.sip_message import SIPMessage, SIPRequest, SIPResponse, SIPMethod, SIPStatusCode
 from ..protocol.sip_utils import generate_tag, generate_branch, generate_call_id, build_sip_uri, parse_sip_uri
 from .call_manager import CallManager, ClientCall
 
@@ -110,6 +110,14 @@ class SIPClient:
         if not self.running:
             self.start()
         
+        # Resolve server hostname to IP
+        try:
+            server_ip = socket.gethostbyname(self.server_host)
+        except (socket.gaierror, OSError) as e:
+            error_msg = f"Cannot resolve SIP server hostname '{self.server_host}': {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg) from e
+        
         request_uri = build_sip_uri(host=self.domain, port=self.server_port)
         from_uri = build_sip_uri(user=self.username, host=self.domain)
         to_uri = from_uri
@@ -117,7 +125,17 @@ class SIPClient:
         
         # Get local IP
         import socket as sock
-        local_ip = sock.gethostbyname(sock.gethostname())
+        try:
+            local_ip = sock.gethostbyname(sock.gethostname())
+        except (socket.gaierror, OSError):
+            # Fallback: connect to external address to determine local IP
+            try:
+                s = sock.socket(sock.AF_INET, sock.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+            except Exception:
+                local_ip = "127.0.0.1"  # Final fallback
         contact = build_sip_uri(user=self.username, host=local_ip, port=self.local_port)
         
         via = f"SIP/2.0/UDP {local_ip}:{self.local_port};branch={generate_branch()}"
@@ -135,11 +153,11 @@ class SIPClient:
         
         self.cseq += 1
         
-        # Send request
-        self._send_request(request, (self.server_host, self.server_port))
+        # Send request to resolved IP
+        self._send_request(request, (server_ip, self.server_port))
         
         # Wait for response (simplified - in production, use proper transaction handling)
-        logger.info(f"Registration request sent for {self.username}")
+        logger.info(f"Registration request sent for {self.username} to {server_ip}:{self.server_port}")
     
     def make_call(self, remote_uri: str) -> Optional[str]:
         """
@@ -175,7 +193,17 @@ class SIPClient:
         
         # Get local IP
         import socket as sock
-        local_ip = sock.gethostbyname(sock.gethostname())
+        try:
+            local_ip = sock.gethostbyname(sock.gethostname())
+        except (socket.gaierror, OSError):
+            # Fallback: connect to external address to determine local IP
+            try:
+                s = sock.socket(sock.AF_INET, sock.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+            except Exception:
+                local_ip = "127.0.0.1"  # Final fallback
         contact = build_sip_uri(user=self.username, host=local_ip, port=self.local_port)
         
         via = f"SIP/2.0/UDP {local_ip}:{self.local_port};branch={generate_branch()}"
@@ -205,8 +233,15 @@ class SIPClient:
         call.local_sdp = sdp_offer
         call.set_state("INITIATING")
         
-        # Send INVITE
-        self._send_request(request, (self.server_host, self.server_port))
+        # Resolve server hostname and send INVITE
+        try:
+            server_ip = socket.gethostbyname(self.server_host)
+        except (socket.gaierror, OSError) as e:
+            error_msg = f"Cannot resolve SIP server hostname '{self.server_host}': {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg) from e
+        
+        self._send_request(request, (server_ip, self.server_port))
         
         logger.info(f"Call initiated: {call_id} -> {remote_uri}")
         return call_id
@@ -224,7 +259,17 @@ class SIPClient:
         to_uri = call.remote_uri
         
         import socket as sock
-        local_ip = sock.gethostbyname(sock.gethostname())
+        try:
+            local_ip = sock.gethostbyname(sock.gethostname())
+        except (socket.gaierror, OSError):
+            # Fallback: connect to external address to determine local IP
+            try:
+                s = sock.socket(sock.AF_INET, sock.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+            except Exception:
+                local_ip = "127.0.0.1"  # Final fallback
         via = f"SIP/2.0/UDP {local_ip}:{self.local_port};branch={generate_branch()}"
         
         request = SIPRequest.create_bye(
@@ -373,7 +418,17 @@ class SIPClient:
         
         # Generate SDP answer
         import socket as sock
-        local_ip = sock.gethostbyname(sock.gethostname())
+        try:
+            local_ip = sock.gethostbyname(sock.gethostname())
+        except (socket.gaierror, OSError):
+            # Fallback: connect to external address to determine local IP
+            try:
+                s = sock.socket(sock.AF_INET, sock.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+            except Exception:
+                local_ip = "127.0.0.1"  # Final fallback
         sdp_answer = self._generate_sdp_offer(local_ip)
         call.local_sdp = sdp_answer
         
@@ -414,7 +469,17 @@ class SIPClient:
     def _send_ack(self, call: ClientCall, response: SIPResponse):
         """Send ACK for 200 OK response."""
         import socket as sock
-        local_ip = sock.gethostbyname(sock.gethostname())
+        try:
+            local_ip = sock.gethostbyname(sock.gethostname())
+        except (socket.gaierror, OSError):
+            # Fallback: connect to external address to determine local IP
+            try:
+                s = sock.socket(sock.AF_INET, sock.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+            except Exception:
+                local_ip = "127.0.0.1"  # Final fallback
         via = f"SIP/2.0/UDP {local_ip}:{self.local_port};branch={generate_branch()}"
         
         ack = SIPRequest(SIPMethod.ACK, call.remote_uri)

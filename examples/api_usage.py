@@ -102,18 +102,37 @@ def list_calls(token: str, skip: int = 0, limit: int = 100):
 if __name__ == "__main__":
     # Example workflow
     print("1. Registering user...")
-    user = register_user(
-        email="user@example.com",
-        username="testuser",
-        password="testpass123",
-        full_name="Test User"
-    )
-    print(f"User registered: {user}")
+    try:
+        user_response = register_user(
+            email="user@example.com",
+            username="testuser",
+            password="testpass123",
+            full_name="Test User"
+        )
+        if "detail" in user_response:
+            print(f"Error: {user_response['detail']}")
+            # Try to continue with login if user already exists
+            if "already" in user_response["detail"].lower():
+                print("User may already exist, trying to login...")
+            else:
+                exit(1)
+        else:
+            print(f"User registered: {user_response}")
+    except Exception as e:
+        print(f"Registration error: {e}")
+        print("Trying to login with existing user...")
     
     print("\n2. Logging in...")
-    token_data = login("testuser", "testpass123")
-    token = token_data["access_token"]
-    print(f"Logged in. Token: {token[:20]}...")
+    try:
+        token_data = login("testuser", "testpass123")
+        if "access_token" not in token_data:
+            print(f"Login failed: {token_data}")
+            exit(1)
+        token = token_data["access_token"]
+        print(f"Logged in. Token: {token[:20]}...")
+    except Exception as e:
+        print(f"Login error: {e}")
+        exit(1)
     
     print("\n3. Creating SIP account...")
     account = create_sip_account(
@@ -128,20 +147,37 @@ if __name__ == "__main__":
     print(f"SIP account created: {account}")
     
     print("\n4. Making a call...")
-    call = make_call(
-        token=token,
-        sip_account_id=account["id"],
-        to_uri="sip:user@example.com"
-    )
-    print(f"Call initiated: {call}")
-    
-    print("\n5. Getting call status...")
-    import time
-    time.sleep(2)
-    status = get_call_status(token, call["call_id"])
-    print(f"Call status: {status}")
+    try:
+        call = make_call(
+            token=token,
+            sip_account_id=account["id"],
+            to_uri="sip:user@example.com"
+        )
+        if "detail" in call:
+            print(f"Call failed: {call['detail']}")
+            print("Note: This is expected if the SIP server is not running or hostname cannot be resolved.")
+        else:
+            print(f"Call initiated: {call}")
+            
+            print("\n5. Getting call status...")
+            import time
+            time.sleep(2)
+            if "call_id" in call:
+                status = get_call_status(token, call["call_id"])
+                print(f"Call status: {status}")
+            else:
+                print("No call_id available to check status")
+    except Exception as e:
+        print(f"Error making call: {e}")
     
     print("\n6. Listing calls...")
-    calls = list_calls(token)
-    print(f"Total calls: {len(calls)}")
+    try:
+        calls = list_calls(token)
+        print(f"Total calls: {len(calls)}")
+        if calls:
+            print("Recent calls:")
+            for c in calls[:3]:  # Show first 3 calls
+                print(f"  - {c.get('call_id', 'N/A')}: {c.get('state', 'N/A')}")
+    except Exception as e:
+        print(f"Error listing calls: {e}")
 

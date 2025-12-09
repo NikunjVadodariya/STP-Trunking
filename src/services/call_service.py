@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Optional
 import logging
 import asyncio
+import socket
 
 from ..database.models import Call, CallRecord, SIPAccount
 from ..client.sip_client import SIPClient
@@ -57,7 +58,11 @@ class CallService:
         )
         self.db.add(call)
         
-        # Create call record
+        # Commit call first to get the ID
+        self.db.commit()
+        self.db.refresh(call)
+        
+        # Create call record after call is committed
         record = CallRecord(
             call_id=call.id,
             event_type="INVITE",
@@ -65,17 +70,23 @@ class CallService:
         )
         self.db.add(record)
         self.db.commit()
-        self.db.refresh(call)
         
         # Initiate call via SIP client
         try:
             client.make_call(to_uri)
             logger.info(f"Call initiated: {call_id}")
-        except Exception as e:
-            logger.error(f"Error initiating call: {e}")
+        except socket.gaierror as e:
+            error_msg = f"Cannot resolve hostname '{sip_account.server_host}'. Please check the SIP server hostname/IP address."
+            logger.error(f"Error initiating call: {error_msg}")
             call.state = "FAILED"
             self.db.commit()
-            raise
+            raise ValueError(error_msg) from e
+        except Exception as e:
+            error_msg = f"Error initiating call: {str(e)}"
+            logger.error(error_msg)
+            call.state = "FAILED"
+            self.db.commit()
+            raise ValueError(error_msg) from e
         
         return call
     
