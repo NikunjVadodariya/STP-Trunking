@@ -45,6 +45,7 @@ class CallService:
         
         # Build from URI
         from_uri = build_sip_uri(user=sip_account.username, host=sip_account.domain)
+        print(f"From URI: {from_uri}")
         
         # Create call record
         call = Call(
@@ -121,39 +122,51 @@ class CallService:
             logger.error(f"Error hanging up call: {e}")
             raise
     
+    def _update_call_state_sync(
+        self,
+        call_id: str,
+        state: str,
+        **kwargs
+    ):
+        """Update call state synchronously (for use in callbacks)."""
+        try:
+            call = self.db.query(Call).filter(Call.call_id == call_id).first()
+            if not call:
+                return
+            
+            call.state = state
+            
+            if state == "CONNECTED" and not call.connected_at:
+                call.connected_at = datetime.utcnow()
+            elif state == "TERMINATED" and not call.ended_at:
+                call.ended_at = datetime.utcnow()
+                if call.connected_at:
+                    call.duration = (call.ended_at - call.connected_at).total_seconds()
+            
+            # Update other fields from kwargs
+            for key, value in kwargs.items():
+                if hasattr(call, key):
+                    setattr(call, key, value)
+            
+            # Create call record
+            record = CallRecord(
+                call_id=call.id,
+                event_type=state,
+                event_data=str(kwargs)
+            )
+            self.db.add(record)
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Error updating call state: {e}")
+    
     async def update_call_state(
         self,
         call_id: str,
         state: str,
         **kwargs
     ):
-        """Update call state."""
-        call = self.db.query(Call).filter(Call.call_id == call_id).first()
-        if not call:
-            return
-        
-        call.state = state
-        
-        if state == "CONNECTED" and not call.connected_at:
-            call.connected_at = datetime.utcnow()
-        elif state == "TERMINATED" and not call.ended_at:
-            call.ended_at = datetime.utcnow()
-            if call.connected_at:
-                call.duration = (call.ended_at - call.connected_at).total_seconds()
-        
-        # Update other fields from kwargs
-        for key, value in kwargs.items():
-            if hasattr(call, key):
-                setattr(call, key, value)
-        
-        # Create call record
-        record = CallRecord(
-            call_id=call.id,
-            event_type=state,
-            event_data=str(kwargs)
-        )
-        self.db.add(record)
-        self.db.commit()
+        """Update call state (async version for API use)."""
+        self._update_call_state_sync(call_id, state, **kwargs)
     
     def _get_or_create_client(self, sip_account: SIPAccount) -> SIPClient:
         """Get or create SIP client for account."""
@@ -189,12 +202,12 @@ class CallService:
         # Register client
         client.register()
         
-        # Set up callbacks - run async update in background
+        # Set up callbacks - use thread-safe async execution
         def on_connected(cid):
-            asyncio.create_task(self.update_call_state(cid, "CONNECTED"))
+            self._update_call_state_sync(cid, "CONNECTED")
         
         def on_ended(cid):
-            asyncio.create_task(self.update_call_state(cid, "TERMINATED"))
+            self._update_call_state_sync(cid, "TERMINATED")
         
         client.set_on_call_connected(on_connected)
         client.set_on_call_ended(on_ended)

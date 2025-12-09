@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIP Trunking Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .auth-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+        }
+
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        input, select, button {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.secondary {
+            background: #6c757d;
+        }
+
+        button.danger {
+            background: #dc3545;
+        }
+
+        button.success {
+            background: #28a745;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .accounts-list, .calls-list {
+            display: grid;
+            gap: 15px;
+        }
+
+        .account-card, .call-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .account-card h3, .call-card h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .account-card p, .call-card p {
+            margin: 5px 0;
+            color: #666;
+        }
+
+        .call-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .call-status.initiating {
+            background: #ffc107;
+            color: #856404;
+        }
+
+        .call-status.ringing {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .call-status.connected {
+            background: #28a745;
+            color: white;
+        }
+
+        .call-status.terminated {
+            background: #6c757d;
+            color: white;
+        }
+
+        .call-status.failed {
+            background: #dc3545;
+            color: white;
+        }
+
+        .websocket-status {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .websocket-status.connected {
+            background: #28a745;
+            animation: pulse 2s infinite;
+        }
+
+        .websocket-status.disconnected {
+            background: #dc3545;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📞 SIP Trunking Dashboard</h1>
+            <p>Manage your SIP accounts and make calls</p>
+        </div>
+
+        <div class="content">
+            <!-- Authentication Section -->
+            <div id="authSection" class="auth-section">
+                <h2>Authentication</h2>
+                <div id="loginForm">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="username" placeholder="Enter username">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="password" placeholder="Enter password">
+                    </div>
+                    <button onclick="login()">Login</button>
+                    <p style="margin-top: 15px; text-align: center;">
+                        Don't have an account? <a href="#" onclick="showRegister()">Register</a>
+                    </p>
+                </div>
+
+                <div id="registerForm" class="hidden">
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="regEmail" placeholder="Enter email">
+                    </div>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="regUsername" placeholder="Enter username">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="regPassword" placeholder="Enter password (min 8 chars)">
+                    </div>
+                    <div class="form-group">
+                        <label>Full Name</label>
+                        <input type="text" id="regFullName" placeholder="Enter full name">
+                    </div>
+                    <button onclick="register()">Register</button>
+                    <p style="margin-top: 15px; text-align: center;">
+                        Already have an account? <a href="#" onclick="showLogin()">Login</a>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Main Dashboard (hidden until logged in) -->
+            <div id="dashboard" class="hidden">
+                <div class="section">
+                    <h2>
+                        WebSocket Status: 
+                        <span class="websocket-status" id="wsStatus"></span>
+                        <span id="wsStatusText">Disconnected</span>
+                    </h2>
+                </div>
+
+                <!-- SIP Accounts Section -->
+                <div class="section">
+                    <h2>SIP Accounts</h2>
+                    <div id="accountForm">
+                        <div class="grid">
+                            <div class="form-group">
+                                <label>Account Name</label>
+                                <input type="text" id="accountName" placeholder="My SIP Account">
+                            </div>
+                            <div class="form-group">
+                                <label>Username</label>
+                                <input type="text" id="sipUsername" placeholder="sipuser">
+                            </div>
+                            <div class="form-group">
+                                <label>Password</label>
+                                <input type="password" id="sipPassword" placeholder="sip password">
+                            </div>
+                            <div class="form-group">
+                                <label>Server Host</label>
+                                <input type="text" id="serverHost" placeholder="sip.provider.com" value="localhost">
+                            </div>
+                            <div class="form-group">
+                                <label>Server Port</label>
+                                <input type="number" id="serverPort" placeholder="5060" value="5060">
+                            </div>
+                            <div class="form-group">
+                                <label>Domain</label>
+                                <input type="text" id="domain" placeholder="provider.com" value="localhost">
+                            </div>
+                        </div>
+                        <button onclick="createSIPAccount()">Create SIP Account</button>
+                    </div>
+                    <div id="accountsList" class="accounts-list" style="margin-top: 20px;"></div>
+                </div>
+
+                <!-- Make Call Section -->
+                <div class="section">
+                    <h2>Make a Call</h2>
+                    <div class="grid">
+                        <div class="form-group">
+                            <label>Select SIP Account</label>
+                            <select id="callAccountId">
+                                <option value="">Select an account...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>To URI</label>
+                            <input type="text" id="toUri" placeholder="sip:user@example.com">
+                        </div>
+                    </div>
+                    <button onclick="makeCall()">Make Call</button>
+                </div>
+
+                <!-- Active Calls Section -->
+                <div class="section">
+                    <h2>Active Calls</h2>
+                    <button onclick="refreshCalls()" class="secondary" style="margin-bottom: 15px;">Refresh Calls</button>
+                    <div id="callsList" class="calls-list"></div>
+                </div>
+            </div>
+
+            <!-- Status Messages -->
+            <div id="statusMessage"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api/v1';
+        const WS_BASE = 'ws://localhost:8000/api/v1/ws';
+        
+        let authToken = null;
+        let ws = null;
+        let accounts = [];
+        let calls = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check if already logged in
+            const savedToken = localStorage.getItem('authToken');
+            if (savedToken) {
+                authToken = savedToken;
+                showDashboard();
+            }
+        });
+
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+            setTimeout(() => {
+                statusDiv.innerHTML = '';
+            }, 5000);
+        }
+
+        function showLogin() {
+            document.getElementById('loginForm').classList.remove('hidden');
+            document.getElementById('registerForm').classList.add('hidden');
+        }
+
+        function showRegister() {
+            document.getElementById('loginForm').classList.add('hidden');
+            document.getElementById('registerForm').classList.remove('hidden');
+        }
+
+        async function register() {
+            const email = document.getElementById('regEmail').value;
+            const username = document.getElementById('regUsername').value;
+            const password = document.getElementById('regPassword').value;
+            const fullName = document.getElementById('regFullName').value;
+
+            if (!email || !username || !password) {
+                showStatus('Please fill in all required fields', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, username, password, full_name: fullName })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showStatus('Registration successful! Please login.', 'success');
+                    showLogin();
+                } else {
+                    showStatus(data.detail || 'Registration failed', 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            if (!username || !password) {
+                showStatus('Please enter username and password', 'error');
+                return;
+            }
+
+            const formData = new URLSearchParams();
+            formData.append('username', username);
+            formData.append('password', password);
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formData
+                });
+
+                const data = await response.json();
+                if (response.ok && data.access_token) {
+                    authToken = data.access_token;
+                    localStorage.setItem('authToken', authToken);
+                    showStatus('Login successful!', 'success');
+                    showDashboard();
+                } else {
+                    showStatus(data.detail || 'Login failed', 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        function showDashboard() {
+            document.getElementById('authSection').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            loadAccounts();
+            loadCalls();
+            connectWebSocket();
+        }
+
+        function logout() {
+            authToken = null;
+            localStorage.removeItem('authToken');
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            document.getElementById('authSection').classList.remove('hidden');
+            document.getElementById('dashboard').classList.add('hidden');
+        }
+
+        async function loadAccounts() {
+            try {
+                const response = await fetch(`${API_BASE}/accounts`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (response.ok) {
+                    accounts = await response.json();
+                    renderAccounts();
+                    updateAccountSelect();
+                }
+            } catch (error) {
+                showStatus('Error loading accounts: ' + error.message, 'error');
+            }
+        }
+
+        function renderAccounts() {
+            const listDiv = document.getElementById('accountsList');
+            if (accounts.length === 0) {
+                listDiv.innerHTML = '<p class="loading">No SIP accounts. Create one above.</p>';
+                return;
+            }
+
+            listDiv.innerHTML = accounts.map(account => `
+                <div class="account-card">
+                    <h3>${account.account_name}</h3>
+                    <p><strong>Username:</strong> ${account.username}</p>
+                    <p><strong>Server:</strong> ${account.server_host}:${account.server_port}</p>
+                    <p><strong>Domain:</strong> ${account.domain}</p>
+                    <p><strong>Status:</strong> ${account.is_active ? 'Active' : 'Inactive'}</p>
+                    <button onclick="deleteAccount(${account.id})" class="danger" style="margin-top: 10px; width: auto; padding: 8px 16px;">Delete</button>
+                </div>
+            `).join('');
+        }
+
+        function updateAccountSelect() {
+            const select = document.getElementById('callAccountId');
+            select.innerHTML = '<option value="">Select an account...</option>' +
+                accounts.map(acc => `<option value="${acc.id}">${acc.account_name}</option>`).join('');
+        }
+
+        async function createSIPAccount() {
+            const accountName = document.getElementById('accountName').value;
+            const username = document.getElementById('sipUsername').value;
+            const password = document.getElementById('sipPassword').value;
+            const serverHost = document.getElementById('serverHost').value;
+            const serverPort = parseInt(document.getElementById('serverPort').value);
+            const domain = document.getElementById('domain').value;
+
+            if (!accountName || !username || !password || !serverHost || !domain) {
+                showStatus('Please fill in all fields', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/accounts`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        account_name: accountName,
+                        username,
+                        password,
+                        server_host: serverHost,
+                        server_port: serverPort,
+                        domain
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showStatus('SIP account created successfully!', 'success');
+                    loadAccounts();
+                    // Clear form
+                    document.getElementById('accountName').value = '';
+                    document.getElementById('sipUsername').value = '';
+                    document.getElementById('sipPassword').value = '';
+                } else {
+                    showStatus(data.detail || 'Failed to create account', 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteAccount(accountId) {
+            if (!confirm('Are you sure you want to delete this account?')) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/accounts/${accountId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (response.ok) {
+                    showStatus('Account deleted successfully', 'success');
+                    loadAccounts();
+                } else {
+                    showStatus('Failed to delete account', 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function makeCall() {
+            const accountId = document.getElementById('callAccountId').value;
+            const toUri = document.getElementById('toUri').value;
+
+            if (!accountId || !toUri) {
+                showStatus('Please select an account and enter a destination URI', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/calls`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        sip_account_id: parseInt(accountId),
+                        to_uri: toUri
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    showStatus('Call initiated!', 'success');
+                    document.getElementById('toUri').value = '';
+                    loadCalls();
+                } else {
+                    showStatus(data.detail || 'Failed to initiate call', 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        async function loadCalls() {
+            try {
+                const response = await fetch(`${API_BASE}/calls?limit=50`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (response.ok) {
+                    calls = await response.json();
+                    renderCalls();
+                }
+            } catch (error) {
+                showStatus('Error loading calls: ' + error.message, 'error');
+            }
+        }
+
+        function renderCalls() {
+            const listDiv = document.getElementById('callsList');
+            if (calls.length === 0) {
+                listDiv.innerHTML = '<p class="loading">No calls yet.</p>';
+                return;
+            }
+
+            listDiv.innerHTML = calls.map(call => {
+                const statusClass = call.state.toLowerCase();
+                const duration = call.duration ? `${Math.round(call.duration)}s` : 'N/A';
+                return `
+                    <div class="call-card">
+                        <h3>Call: ${call.call_id.substring(0, 20)}...</h3>
+                        <p><strong>From:</strong> ${call.from_uri}</p>
+                        <p><strong>To:</strong> ${call.to_uri}</p>
+                        <p><strong>Direction:</strong> ${call.direction}</p>
+                        <p><strong>Status:</strong> <span class="call-status ${statusClass}">${call.state}</span></p>
+                        <p><strong>Duration:</strong> ${duration}</p>
+                        <p><strong>Started:</strong> ${new Date(call.started_at).toLocaleString()}</p>
+                        ${call.state !== 'TERMINATED' && call.state !== 'FAILED' ? 
+                            `<button onclick="hangupCall('${call.call_id}')" class="danger" style="margin-top: 10px; width: auto; padding: 8px 16px;">Hang Up</button>` : 
+                            ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function hangupCall(callId) {
+            try {
+                const response = await fetch(`${API_BASE}/calls/${callId}/hangup`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                if (response.ok) {
+                    showStatus('Call terminated', 'success');
+                    loadCalls();
+                } else {
+                    showStatus('Failed to hang up call', 'error');
+                }
+            } catch (error) {
+                showStatus('Error: ' + error.message, 'error');
+            }
+        }
+
+        function refreshCalls() {
+            loadCalls();
+        }
+
+        function connectWebSocket() {
+            if (!authToken) return;
+
+            // Close existing connection
+            if (ws) {
+                ws.close();
+            }
+
+            ws = new WebSocket(`${WS_BASE}/calls`);
+
+            ws.onopen = () => {
+                updateWebSocketStatus(true);
+                showStatus('WebSocket connected', 'success');
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'call_update') {
+                        showStatus(`Call update: ${data.call_id} - ${data.data.state}`, 'info');
+                        loadCalls(); // Refresh calls list
+                    }
+                } catch (error) {
+                    console.error('Error parsing WebSocket message:', error);
+                }
+            };
+
+            ws.onerror = (error) => {
+                updateWebSocketStatus(false);
+                console.error('WebSocket error:', error);
+            };
+
+            ws.onclose = () => {
+                updateWebSocketStatus(false);
+                // Try to reconnect after 5 seconds
+                setTimeout(() => {
+                    if (authToken) {
+                        connectWebSocket();
+                    }
+                }, 5000);
+            };
+        }
+
+        function updateWebSocketStatus(connected) {
+            const statusEl = document.getElementById('wsStatus');
+            const statusText = document.getElementById('wsStatusText');
+            
+            if (connected) {
+                statusEl.className = 'websocket-status connected';
+                statusText.textContent = 'Connected';
+            } else {
+                statusEl.className = 'websocket-status disconnected';
+                statusText.textContent = 'Disconnected';
+            }
+        }
+    </script>
+</body>
+</html>
+

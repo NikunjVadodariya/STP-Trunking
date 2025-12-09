@@ -29,14 +29,16 @@ class SIPClient:
             config_path: Path to client configuration file
         """
         self.config = self._load_config(config_path)
-        self.server_host = self.config.get('server_host', 'localhost')
-        self.server_port = self.config.get('server_port', 5060)
-        self.username = self.config.get('username', 'user')
-        self.password = self.config.get('password', '')
-        self.domain = self.config.get('domain', 'localhost')
+        # Handle nested config structure (from call_service) or flat structure (from file)
+        client_config = self.config.get('client', self.config)
+        self.server_host = client_config.get('server_host', 'localhost')
+        self.server_port = client_config.get('server_port', 5060)
+        self.username = client_config.get('username', 'user')
+        self.password = client_config.get('password', '')
+        self.domain = client_config.get('domain', 'localhost')
         
-        self.local_ip = self.config.get('local_ip', '0.0.0.0')
-        self.local_port = self.config.get('local_port', 0)  # 0 for auto-assign
+        self.local_ip = client_config.get('local_ip', '0.0.0.0')
+        self.local_port = client_config.get('local_port', 0)  # 0 for auto-assign
         
         self.socket: Optional[socket.socket] = None
         self.running = False

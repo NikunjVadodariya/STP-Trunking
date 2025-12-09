@@ -79,6 +79,14 @@ The API will be available at `http://localhost:8000`
 - API Documentation: `http://localhost:8000/docs`
 - Alternative docs: `http://localhost:8000/redoc`
 
+### 4. Use the Web Dashboard
+
+Open `web/dashboard.html` in your browser for a graphical interface to:
+- Register/login users
+- Manage SIP accounts
+- Make calls
+- Monitor calls in real-time via WebSocket
+
 ### 4. Start the SIP Server (Optional - for standalone SIP server)
 
 ```bash

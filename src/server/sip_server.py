@@ -233,25 +233,42 @@ class SIPServer:
         # For demo purposes, auto-answer after a short delay
         # In production, this would wait for user interaction
         import threading
-        threading.Timer(1.0, self._auto_answer_invite, args=(request, addr, call, to_tag)).start()
+        try:
+            threading.Timer(1.0, self._auto_answer_invite, args=(request, addr, call, to_tag)).start()
+        except Exception as e:
+            logger.error(f"Error scheduling auto-answer: {e}")
     
     def _auto_answer_invite(self, request: SIPRequest, addr: tuple, call, to_tag: str):
         """Auto-answer an INVITE (for demo purposes)."""
-        if call.state != CallState.RINGING:
-            return
-        
-        # Generate SDP answer
-        sdp_answer = self._generate_sdp_answer(call)
-        call.local_sdp = sdp_answer
-        
-        # Send 200 OK
-        ok_response = SIPResponse.create_ok(request, to_tag, 
-                                           contact=f"sip:server@{self.domain}:{self.port}",
-                                           body=sdp_answer)
-        self._send_message(ok_response, addr)
-        
-        call.set_state(CallState.CONNECTED)
-        logger.info(f"Call {call.call_id} connected")
+        try:
+            if call.state != CallState.RINGING:
+                return
+            
+            # Generate SDP answer
+            sdp_answer = self._generate_sdp_answer(call)
+            call.local_sdp = sdp_answer
+            
+            # Send 200 OK
+            ok_response = SIPResponse.create_ok(request, to_tag, 
+                                               contact=f"sip:server@{self.domain}:{self.port}",
+                                               body=sdp_answer)
+            self._send_message(ok_response, addr)
+            
+            call.set_state(CallState.CONNECTED)
+            logger.info(f"Call {call.call_id} connected")
+        except Exception as e:
+            logger.error(f"Error in auto-answer for call {call.call_id}: {e}", exc_info=True)
+            # Try to send error response
+            try:
+                error_response = SIPResponse(SIPStatusCode.INTERNAL_SERVER_ERROR, request.method.value)
+                error_response.add_header("Via", request.get_header("Via"))
+                error_response.add_header("From", request.get_header("From"))
+                error_response.add_header("To", request.get_header("To"))
+                error_response.add_header("Call-ID", request.get_header("Call-ID"))
+                error_response.add_header("CSeq", request.get_header("CSeq"))
+                self._send_message(error_response, addr)
+            except Exception:
+                pass
     
     def _handle_ack(self, request: SIPRequest, addr: tuple):
         """Handle ACK request."""
@@ -357,18 +374,26 @@ class SIPServer:
     def _generate_sdp_answer(self, call) -> str:
         """Generate SDP answer."""
         # Simple SDP generation
-        import socket
+        # Get local IP with proper error handling
+        local_ip = "127.0.0.1"  # Default fallback
+        
+        # Try to get local IP address
         try:
             local_ip = socket.gethostbyname(socket.gethostname())
-        except (socket.gaierror, OSError):
+        except Exception as e:
+            logger.debug(f"Could not get hostname IP: {e}")
             # Fallback: connect to external address to determine local IP
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.settimeout(1)  # Set timeout to avoid hanging
                 s.connect(("8.8.8.8", 80))
                 local_ip = s.getsockname()[0]
                 s.close()
-            except Exception:
-                local_ip = "127.0.0.1"  # Final fallback
+            except Exception as e2:
+                logger.debug(f"Could not determine local IP via connection: {e2}")
+                # Use default fallback
+                local_ip = "127.0.0.1"
+        
         local_rtp_port = 10000  # Default RTP port
         
         sdp = f"""v=0
