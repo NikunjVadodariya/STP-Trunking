@@ -71,6 +71,9 @@ async def initiate_call(
         to_uri=call_data.to_uri
     )
     
+    # Refresh to get latest state
+    db.refresh(call)
+    
     return call
 
 

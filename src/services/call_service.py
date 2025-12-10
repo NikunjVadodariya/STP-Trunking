@@ -19,9 +19,17 @@ logger = logging.getLogger(__name__)
 class CallService:
     """Service for managing SIP calls."""
     
+    # Class-level storage for call state updates (shared across instances)
+    _call_state_updates = {}  # call_id -> (state, kwargs)
+    _db_session_factory = None
+    
     def __init__(self, db: Session):
         self.db = db
         self.active_clients: dict = {}  # sip_account_id -> SIPClient
+        # Store session factory for callbacks
+        if CallService._db_session_factory is None:
+            from ..database.database import SessionLocal
+            CallService._db_session_factory = SessionLocal
     
     async def initiate_call(
         self,
@@ -129,9 +137,16 @@ class CallService:
         **kwargs
     ):
         """Update call state synchronously (for use in callbacks)."""
+        # Create a new database session for thread safety
+        if CallService._db_session_factory is None:
+            logger.error("Database session factory not initialized")
+            return
+        
+        db = CallService._db_session_factory()
         try:
-            call = self.db.query(Call).filter(Call.call_id == call_id).first()
+            call = db.query(Call).filter(Call.call_id == call_id).first()
             if not call:
+                logger.warning(f"Call {call_id} not found in database")
                 return
             
             call.state = state
@@ -154,10 +169,14 @@ class CallService:
                 event_type=state,
                 event_data=str(kwargs)
             )
-            self.db.add(record)
-            self.db.commit()
+            db.add(record)
+            db.commit()
+            logger.info(f"Call {call_id} state updated to {state}")
         except Exception as e:
-            logger.error(f"Error updating call state: {e}")
+            logger.error(f"Error updating call state: {e}", exc_info=True)
+            db.rollback()
+        finally:
+            db.close()
     
     async def update_call_state(
         self,
@@ -202,15 +221,28 @@ class CallService:
         # Register client
         client.register()
         
-        # Set up callbacks - use thread-safe async execution
+        # Set up callbacks - use thread-safe database updates
         def on_connected(cid):
+            logger.info(f"Callback: Call {cid} connected")
             self._update_call_state_sync(cid, "CONNECTED")
         
         def on_ended(cid):
+            logger.info(f"Callback: Call {cid} ended")
             self._update_call_state_sync(cid, "TERMINATED")
+        
+        # Also handle intermediate states
+        def on_ringing(cid):
+            logger.info(f"Callback: Call {cid} ringing")
+            self._update_call_state_sync(cid, "RINGING")
+        
+        def on_trying(cid):
+            logger.info(f"Callback: Call {cid} trying")
+            self._update_call_state_sync(cid, "TRYING")
         
         client.set_on_call_connected(on_connected)
         client.set_on_call_ended(on_ended)
+        client.set_on_call_ringing(on_ringing)
+        client.set_on_call_trying(on_trying)
         
         self.active_clients[sip_account.id] = client
         return client

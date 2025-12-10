@@ -52,6 +52,8 @@ class SIPClient:
         self.on_incoming_call: Optional[Callable[[str, str], None]] = None
         self.on_call_connected: Optional[Callable[[str], None]] = None
         self.on_call_ended: Optional[Callable[[str], None]] = None
+        self.on_call_ringing: Optional[Callable[[str], None]] = None
+        self.on_call_trying: Optional[Callable[[str], None]] = None
         
         # Setup logging
         logging.basicConfig(
@@ -370,10 +372,17 @@ class SIPClient:
             if call:
                 call.set_state("RINGING")
                 logger.info(f"Call {call_id} is ringing")
+                # Trigger callback if set
+                if hasattr(self, 'on_call_ringing') and self.on_call_ringing:
+                    self.on_call_ringing(call_id)
         elif status_code == 100:
             # Trying
             if call:
                 call.set_state("TRYING")
+                logger.info(f"Call {call_id} is trying")
+                # Trigger callback if set
+                if hasattr(self, 'on_call_trying') and self.on_call_trying:
+                    self.on_call_trying(call_id)
         elif status_code >= 400:
             # Error response
             if call:
@@ -566,4 +575,12 @@ a=sendrecv
     def set_on_call_ended(self, callback: Callable[[str], None]):
         """Set callback for call ended."""
         self.on_call_ended = callback
+    
+    def set_on_call_ringing(self, callback: Callable[[str], None]):
+        """Set callback for call ringing."""
+        self.on_call_ringing = callback
+    
+    def set_on_call_trying(self, callback: Callable[[str], None]):
+        """Set callback for call trying."""
+        self.on_call_trying = callback
 
